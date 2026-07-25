@@ -5,6 +5,15 @@ Real-time speech transcription with optional live translation into 12 languages 
 - **Browser** — full transcript view with two scrollable panels (English + translation)
 - **Electron overlay** — transparent always-on-top subtitle window for use during video calls; video shows through the top, subtitles float at the bottom
 
+## Quick start
+
+```bash
+cp .env.example .env   # add your OPENAI_API_KEY
+cd electron && npm start
+```
+
+That's it — Electron starts the Python backend for you, nothing else to launch manually. (First time only, install dependencies first — see [Installation](#installation).)
+
 ## How it works
 
 ```
