@@ -95,6 +95,44 @@ cd electron && npm start
 
 The Electron app starts the Python backend automatically on port **8765** (separate from the browser version on 8000). No need to start the server manually.
 
+### Optional: launch from Dock/Spotlight instead of a terminal (macOS)
+
+Creates a small `.app` wrapper in `~/Applications` that just runs `npm start` for you — no code signing needed since it's created locally (won't trigger Gatekeeper). Run from the project root:
+
+```bash
+APP="$HOME/Applications/TranscriberOnTheFly.app"
+mkdir -p "$APP/Contents/MacOS"
+
+cat > "$APP/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key><string>TranscriberOnTheFly</string>
+    <key>CFBundleDisplayName</key><string>TranscriberOnTheFly</string>
+    <key>CFBundleIdentifier</key><string>com.local.transcriberonthefly-launcher</string>
+    <key>CFBundleVersion</key><string>1.0</string>
+    <key>CFBundleShortVersionString</key><string>1.0</string>
+    <key>CFBundleExecutable</key><string>TranscriberOnTheFly</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>LSMinimumSystemVersion</key><string>10.13</string>
+    <key>NSHighResolutionCapable</key><true/>
+</dict>
+</plist>
+PLIST
+
+cat > "$APP/Contents/MacOS/TranscriberOnTheFly" <<SCRIPT
+#!/bin/bash
+export PATH="/opt/homebrew/bin:\$PATH"
+cd "$(pwd)/electron" || exit 1
+exec npm start
+SCRIPT
+
+chmod +x "$APP/Contents/MacOS/TranscriberOnTheFly"
+```
+
+The app is then searchable in Spotlight by name and can be dragged to the Dock. Quitting the window (or ⌘Q) stops both Electron and the Python backend, same as `npm start`. If `npm`/`node` live somewhere other than `/opt/homebrew/bin` (check with `which npm`), adjust the `PATH` line accordingly.
+
 ### Overlay controls
 
 | Control | Action |
