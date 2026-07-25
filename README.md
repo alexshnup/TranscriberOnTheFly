@@ -49,7 +49,7 @@ cd electron && npm install
 
 ## Configuration
 
-Add your key(s) to `.env`:
+Copy `.env.example` to `.env` and add your key(s):
 
 ```env
 # Required — ASR runs on OpenAI Realtime (gpt-realtime-whisper); no other provider supports it
@@ -138,7 +138,9 @@ When the transcribed speech contains a technical question (or, if the **💡** t
 
 **Automatic mode (💡 toggle, off by default):** when on, this fires on every committed paragraph, same as before this toggle existed.
 
-**Manual mode (always available, regardless of the 💡 toggle):** select any already-transcribed text with the mouse. If the selection stays unchanged for ~1 second, it's sent as "Tell me about `<selection>`" and the answer appears in the same 💡 panel — no button, no click needed, just hold the selection still. Extending, shrinking, or clearing the selection within that second resets the timer.
+**Manual mode (always available, regardless of the 💡 toggle):** select any already-transcribed text with the mouse — a small **💡 Ask** button appears next to the selection. Click it to send "Tell me about `<selection>`"; the answer appears immediately in the same 💡 panel. Works independently of recording state — you can hit Stop and keep asking about already-transcribed text.
+
+**Domain field:** the text box next to the language selector (e.g. `HVAC`) biases the manual select-and-ask flow, the automatic 💡 hints, and 💬 topic detection all toward that field — without it, an ambiguous phrase like "high pressure control in safety system" gets a generic/wrong-industry guess (e.g. oil & gas); with `HVAC` set, all three correctly interpret it in HVAC terms. Persists across restarts. Read fresh at connect time for the automatic 💡/💬 hints (so change it before hitting Start for those to pick it up), but the manual ask button always uses the current value regardless of recording state.
 
 ### Topic hints (💬 marker, toggleable)
 

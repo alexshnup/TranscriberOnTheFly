@@ -61,6 +61,16 @@
   .lang-select option { background: #111318; }
   #lang-flag { font-size: 1rem; line-height: 1; }
 
+  .domain-input {
+    width: 110px; flex-shrink: 0;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 7px; color: #e8eaf0;
+    font-size: 0.70rem; font-weight: 500;
+    padding: 4px 8px; outline: none;
+  }
+  .domain-input::placeholder { color: #6b7280; }
+  .domain-input:focus { border-color: rgba(96,165,250,0.5); }
+
   /* ── Opacity slider ───────────────────────────────────────────────────── */
   .opacity-wrap { display: flex; align-items: center; gap: 5px; }
   .opacity-icon { font-size: 0.8rem; color: rgba(255,255,255,0.35); user-select: none; }
@@ -187,6 +197,24 @@
   .answer-nav:hover:not(:disabled) { background: rgba(74,222,128,0.25); }
   .answer-nav:disabled { opacity: 0.2; cursor: default; }
 
+  /* ── Floating "ask about selection" button ────────────────────────────── */
+  #ask-btn {
+    display: none;
+    position: fixed;
+    z-index: 20;
+    align-items: center; gap: 4px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    border: 1px solid rgba(74,222,128,0.4);
+    background: rgba(15, 30, 18, 0.95);
+    color: #86efac;
+    font-size: 0.72rem; font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  }
+  #ask-btn.visible { display: flex; }
+  #ask-btn:hover { background: rgba(74,222,128,0.22); }
+
   /* ── Topic toggle button ─────────────────────────────────────────────── */
   /* Emoji icons (💬💡) read as "on" on their own regardless of CSS state —
      dim/desaturate them while inactive so off actually looks off. */
@@ -247,6 +275,7 @@
     </div>
     <span id="lang-flag">—</span>
     <select class="lang-select" id="lang-select"></select>
+    <input type="text" id="domain-input" class="domain-input" placeholder="Domain (e.g. HVAC)" title="Bias 💡 hints toward this field/domain">
     <button class="ctrl-btn" id="btn-topics" title="Toggle topic hints">💬</button>
     <button class="ctrl-btn" id="btn-auto" title="Toggle automatic hints">💡</button>
     <button class="ctrl-btn" id="btn-close">✕</button>
@@ -260,6 +289,9 @@
       <div class="col-ru" id="ru-draft"></div>
     </div>
   </div>
+
+  <!-- Floating button — appears near a text selection in the transcript -->
+  <button id="ask-btn">💡 Ask</button>
 
   <!-- Topic marker — current subject being discussed (toggleable) -->
   <div id="topic-marker">
@@ -308,6 +340,7 @@ const btnRec        = document.getElementById('btn-rec')
 const btnClose      = document.getElementById('btn-close')
 const langFlag      = document.getElementById('lang-flag')
 const langSel       = document.getElementById('lang-select')
+const domainInput   = document.getElementById('domain-input')
 const opacitySlider = document.getElementById('opacity-slider')
 const paraList = document.getElementById('para-list')
 const draftRow = document.getElementById('draft-row')
@@ -326,6 +359,7 @@ const btnAuto       = document.getElementById('btn-auto')
 const topicMarker   = document.getElementById('topic-marker')
 const topicText     = document.getElementById('topic-text')
 const topicDismiss  = document.getElementById('topic-dismiss')
+const askBtn        = document.getElementById('ask-btn')
 
 let answerIndex = 0
 
@@ -371,6 +405,12 @@ opacitySlider.addEventListener('input', () => {
   localStorage.setItem('winOpacity', opacitySlider.value)
 })
 
+// ── Domain field (biases 💡 hints toward a specific subject area) ──────────
+domainInput.value = localStorage.getItem('askDomain') || ''
+domainInput.addEventListener('input', () => {
+  localStorage.setItem('askDomain', domainInput.value)
+})
+
 // ── Topic hints toggle ──────────────────────────────────────────────────────
 let topicsEnabled = localStorage.getItem('topicHintsEnabled') === 'true'
 btnTopics.classList.toggle('active', topicsEnabled)
@@ -392,9 +432,10 @@ btnAuto.addEventListener('click', () => {
   localStorage.setItem('autoHintsEnabled', autoHintsEnabled)
 })
 
-// ── Manual "ask about selection" — select text, hold still for 2s ──────────
-let selectionTimer = null
-let lastAskedSelection = ''
+// ── Manual "ask about selection" — select text, click the button that appears ──
+// Uses a plain HTTP request (not the recording WebSocket) so it keeps working
+// after Stop — you can stop listening and still ask about already-transcribed text.
+let pendingAskText = ''
 
 function isSelectionInTranscript(sel) {
   if (!sel.rangeCount) return false
@@ -402,18 +443,43 @@ function isSelectionInTranscript(sel) {
   return textScroll.contains(node.nodeType === 1 ? node : node.parentNode)
 }
 
+async function askAboutSelection(text) {
+  try {
+    const resp = await fetch(`http://127.0.0.1:${PORT}/ask`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, domain: domainInput.value.trim() }),
+    })
+    const data = await resp.json()
+    if (data.text) onMessage({ type: 'answer', text: data.text })
+  } catch (e) {
+    console.error('ask failed:', e)
+  }
+}
+
 document.addEventListener('selectionchange', () => {
-  if (selectionTimer) { clearTimeout(selectionTimer); selectionTimer = null }
   const sel = window.getSelection()
   const text = sel.toString().trim()
-  if (!text || !isSelectionInTranscript(sel) || text === lastAskedSelection) return
+  if (!text || !isSelectionInTranscript(sel)) {
+    pendingAskText = ''
+    askBtn.classList.remove('visible')
+    return
+  }
+  pendingAskText = text
+  const rect = sel.getRangeAt(0).getBoundingClientRect()
+  askBtn.style.left = `${Math.max(4, rect.right - 40)}px`
+  askBtn.style.top = `${Math.max(4, rect.top - 32)}px`
+  askBtn.classList.add('visible')
+})
 
-  selectionTimer = setTimeout(() => {
-    if (window.getSelection().toString().trim() === text && ws?.readyState === WebSocket.OPEN) {
-      lastAskedSelection = text
-      ws.send(JSON.stringify({ type: 'ask', text }))
-    }
-  }, 1000)
+// preventDefault on mousedown so clicking the button doesn't collapse the selection first
+askBtn.addEventListener('mousedown', e => e.preventDefault())
+askBtn.addEventListener('click', () => {
+  if (!pendingAskText) return
+  askBtn.classList.remove('visible')
+  askAboutSelection(pendingAskText)
+  window.getSelection().removeAllRanges()
+  pendingAskText = ''
 })
 
 // ── Scroll ────────────────────────────────────────────────────────────────
@@ -543,7 +609,7 @@ function onMessage(msg) {
 // ── WebSocket ─────────────────────────────────────────────────────────────
 function connectWS(sampleRate) {
   ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`)
-  ws.onopen    = () => { ws.send(JSON.stringify({ sampleRate, targetLang: langSel.value, topicHints: topicsEnabled, autoHints: autoHintsEnabled })); setStatus('connected…') }
+  ws.onopen    = () => { ws.send(JSON.stringify({ sampleRate, targetLang: langSel.value, topicHints: topicsEnabled, autoHints: autoHintsEnabled, domain: domainInput.value.trim() })); setStatus('connected…') }
   ws.onmessage = ev => onMessage(JSON.parse(ev.data))
   ws.onclose   = () => { if (isRecording) { setStatus('disconnected'); stopRecording() } }
   ws.onerror   = () => setStatus('ws error')

@@ -1,7 +1,6 @@
 import asyncio
 import base64
 import itertools
-import json
 import os
 from typing import Optional
 
@@ -9,7 +8,8 @@ import numpy as np
 import scipy.signal
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import openai
@@ -18,6 +18,16 @@ load_dotenv()
 
 app = FastAPI(title="TranscriberOnTheFly")
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# The Electron overlay loads overlay.html from a file:// origin, so its fetch()
+# calls to /ask are cross-origin — allow them (WS connections aren't affected
+# by CORS, only this new plain HTTP endpoint needs it).
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["POST"],
+    allow_headers=["*"],
+)
 
 REALTIME_RATE = 24000              # gpt-realtime-whisper only supports 24kHz PCM
 REALTIME_MODEL = "gpt-realtime-whisper"
@@ -31,8 +41,9 @@ MAX_PENDING_MERGES = 3             # force-commit after this many short-fragment
 PENDING_GRACE_SECS = 1.5           # commit a short pending segment anyway if nothing more arrives
 DRAFT_TRANSLATE_THROTTLE = 1.0     # min seconds between live-draft translation calls
 
-ANSWER_PROMPT = (
+ANSWER_PROMPT_TEMPLATE = (
     "You are a knowledgeable friend listening to a conversation.\n"
+    "{domain_hint}"
     "If the text mentions any technical or substantive topic (Linux, Kubernetes, Docker, "
     "networking, programming, databases, cloud, DevOps, system design, security, history, "
     "science, business, or any other specific domain), drop in a quick helpful tip or fact "
@@ -45,9 +56,20 @@ ANSWER_PROMPT = (
     "Output only the tip, no preamble, no quotes."
 )
 
-TOPIC_PROMPT = (
+EXPLAIN_PROMPT_TEMPLATE = (
+    "You are a knowledgeable friend explaining a word or phrase the user just picked "
+    "out of a live conversation transcript, because they didn't understand it.\n"
+    "{domain_hint}"
+    "Explain what it means in 2-3 sentences — casual, plain words, like texting a friend. "
+    "No corporate tone, no 'it is worth noting', no 'leveraging', no 'robust'.\n"
+    "This was a deliberate request — always give a real explanation, never refuse and "
+    "never say there's nothing to add."
+)
+
+TOPIC_PROMPT_TEMPLATE = (
     "You are watching a live conversation transcript to spot what specific subject "
     "is being discussed right now.\n"
+    "{domain_hint}"
     "Identify the single specific subject, technology, tool, or concept the text is "
     "about (e.g. 'Ansible', 'Kubernetes', 'quantum computing').\n"
     "If there is no clear specific subject — small talk, filler, greetings, or vague "
@@ -55,6 +77,14 @@ TOPIC_PROMPT = (
     "Otherwise respond on a single line in exactly this format, nothing else:\n"
     "<Topic Name> || <one-sentence plain-English definition>"
 )
+
+def _domain_hint(domain: str) -> str:
+    if not domain:
+        return ""
+    return (
+        f"The user is specifically interested in the {domain} field — interpret "
+        "ambiguous terms through that lens.\n"
+    )
 
 
 HALLUCINATIONS = frozenset([
@@ -149,15 +179,16 @@ async def translate_text(
 
 
 async def answer_question(
-    client: openai.AsyncOpenAI, model: str, text: str
+    client: openai.AsyncOpenAI, model: str, text: str, domain: str = ""
 ) -> Optional[str]:
     if not text.strip():
         return None
+    prompt = ANSWER_PROMPT_TEMPLATE.format(domain_hint=_domain_hint(domain))
     try:
         resp = await client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": ANSWER_PROMPT},
+                {"role": "system", "content": prompt},
                 {"role": "user",   "content": text},
             ],
             max_tokens=350,
@@ -170,16 +201,39 @@ async def answer_question(
         return None
 
 
-async def detect_topic(
-    client: openai.AsyncOpenAI, model: str, text: str
-) -> Optional[tuple[str, str]]:
+async def explain_selection(
+    client: openai.AsyncOpenAI, model: str, text: str, domain: str = ""
+) -> Optional[str]:
     if not text.strip():
         return None
+    prompt = EXPLAIN_PROMPT_TEMPLATE.format(domain_hint=_domain_hint(domain))
     try:
         resp = await client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": TOPIC_PROMPT},
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": text},
+            ],
+            max_tokens=200,
+            temperature=0.3,
+        )
+        return resp.choices[0].message.content.strip()
+    except Exception as exc:
+        print(f"[explain] {exc}")
+        return None
+
+
+async def detect_topic(
+    client: openai.AsyncOpenAI, model: str, text: str, domain: str = ""
+) -> Optional[tuple[str, str]]:
+    if not text.strip():
+        return None
+    prompt = TOPIC_PROMPT_TEMPLATE.format(domain_hint=_domain_hint(domain))
+    try:
+        resp = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": prompt},
                 {"role": "user",   "content": text},
             ],
             max_tokens=100,
@@ -204,6 +258,23 @@ async def index():
         return HTMLResponse(f.read())
 
 
+@app.post("/ask")
+async def ask_endpoint(request: Request):
+    """Manual 'tell me about this' request for selected text — independent of
+    any recording session, so it keeps working after Stop."""
+    body = await request.json()
+    text = str(body.get("text", "")).strip()
+    domain = str(body.get("domain", "")).strip()
+    if not text:
+        return {"text": None}
+    try:
+        llm_client, llm_model = get_llm_client()
+    except RuntimeError as exc:
+        return {"error": str(exc)}
+    ans = await explain_selection(llm_client, llm_model, text, domain)
+    return {"text": ans}
+
+
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     await ws.accept()
@@ -214,6 +285,7 @@ async def ws_endpoint(ws: WebSocket):
         target_lang = str(meta.get("targetLang", "")).strip()
         topic_hints_enabled = bool(meta.get("topicHints", False))
         auto_hints_enabled = bool(meta.get("autoHints", False))
+        domain = str(meta.get("domain", "")).strip()
     except Exception:
         await ws.close()
         return
@@ -226,7 +298,7 @@ async def ws_endpoint(ws: WebSocket):
         await ws.close()
         return
 
-    print(f"[session] rate={browser_rate}  asr={REALTIME_MODEL}  llm={llm_model}  lang={target_lang}")
+    print(f"[session] rate={browser_rate}  asr={REALTIME_MODEL}  llm={llm_model}  lang={target_lang}  domain={domain!r}")
     await ws.send_json({"type": "ready", "model": REALTIME_MODEL, "llm": llm_model})
 
     # ── State ─────────────────────────────────────────────────────────────
@@ -315,7 +387,7 @@ async def ws_endpoint(ws: WebSocket):
         async def maybe_answer(seg=segment_en):
             if not auto_hints_enabled or not seg:
                 return
-            ans = await answer_question(llm_client, llm_model, seg)
+            ans = await answer_question(llm_client, llm_model, seg, domain)
             if ans:
                 print(f"[answer] {ans[:80]!r}")
                 await safe_send({"type": "answer", "text": ans})
@@ -326,7 +398,7 @@ async def ws_endpoint(ws: WebSocket):
             nonlocal last_topic
             if not topic_hints_enabled or not seg:
                 return
-            result = await detect_topic(llm_client, llm_model, seg)
+            result = await detect_topic(llm_client, llm_model, seg, domain)
             if not result:
                 return  # no clear topic in this segment — leave last_topic untouched
             topic, definition = result
@@ -346,13 +418,6 @@ async def ws_endpoint(ws: WebSocket):
         if text:
             print(f"[commit] grace-period timeout, committing pending: {text!r:.60}")
             await do_commit(text)
-
-    # ── Manual "ask about selection" request from the client ────────────────
-    async def handle_manual_ask(text: str):
-        ans = await answer_question(llm_client, llm_model, f"Tell me about {text}")
-        if ans:
-            print(f"[ask] {text[:40]!r} -> {ans[:80]!r}")
-            await safe_send({"type": "answer", "text": ans})
 
     async with asr_client.realtime.connect(extra_query={"intent": "transcription"}) as conn:
         await conn.session.update(session={
@@ -376,24 +441,7 @@ async def ws_endpoint(ws: WebSocket):
             speech_samples = 0
             segment_samples = 0
             while True:
-                message = await ws.receive()
-                if message["type"] == "websocket.disconnect":
-                    raise WebSocketDisconnect(message.get("code", 1000), message.get("reason"))
-
-                if message.get("text") is not None:
-                    try:
-                        control = json.loads(message["text"])
-                    except Exception:
-                        continue
-                    if control.get("type") == "ask":
-                        text = str(control.get("text", "")).strip()
-                        if text:
-                            asyncio.create_task(handle_manual_ask(text))
-                    continue
-
-                data = message.get("bytes")
-                if not data:
-                    continue
+                data = await ws.receive_bytes()
                 chunk = np.frombuffer(data, dtype=np.float32)
                 if len(chunk) == 0:
                     continue
