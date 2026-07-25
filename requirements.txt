@@ -1,0 +1,7 @@
+fastapi>=0.111
+uvicorn[standard]>=0.29
+openai>=2.48
+python-dotenv>=1.0
+numpy>=1.26
+scipy>=1.13
+python-multipart>=0.0.9

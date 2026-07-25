@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: rgba(8, 9, 15, 0.88);
+    overflow: hidden;
+    font-family: 'Inter', system-ui, sans-serif;
+    color: #e8eaf0;
+  }
+
+  #root { display: flex; flex-direction: column; height: 100%; }
+
+  /* ── Controls bar ─────────────────────────────────────────────────────── */
+  #toprow {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 12px 6px;
+    flex-shrink: 0;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    -webkit-app-region: drag; cursor: grab;
+  }
+  #toprow > * { -webkit-app-region: no-drag; }
+
+  .drag-dots {
+    flex: 1; height: 3px;
+    background: rgba(255,255,255,0.10); border-radius: 2px;
+    pointer-events: none; -webkit-app-region: drag;
+  }
+
+  .ctrl-btn {
+    display: flex; align-items: center; gap: 5px;
+    height: 26px; padding: 0 10px;
+    border-radius: 8px; border: none;
+    font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em;
+    cursor: pointer; flex-shrink: 0; transition: background 0.15s;
+  }
+  #btn-close { width: 26px; padding: 0; font-size: 13px; background: rgba(255,255,255,0.08); color: #9ca3af; }
+  #btn-close:hover { background: rgba(255,255,255,0.16); color: #e8eaf0; }
+  #btn-rec { color: #e8eaf0; background: rgba(79,142,247,0.25); border: 1px solid rgba(79,142,247,0.4); }
+  #btn-rec:hover { background: rgba(79,142,247,0.4); }
+  #btn-rec.recording { background: rgba(247,79,79,0.22); border-color: rgba(247,79,79,0.5); color: #f87171; }
+
+  .rec-dot { width: 7px; height: 7px; border-radius: 50%; background: #4f8ef7; flex-shrink: 0; }
+  .recording .rec-dot { background: #f74f4f; animation: blink 1s ease-in-out infinite; }
+  @keyframes blink { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.35;transform:scale(0.8)} }
+
+  .lang-select {
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 7px; color: #9ca3af;
+    font-size: 0.70rem; font-weight: 600;
+    padding: 3px 20px 3px 7px; cursor: pointer; outline: none;
+    appearance: none; -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%236b7280'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 6px center;
+  }
+  .lang-select:disabled { opacity: 0.4; cursor: default; }
+  .lang-select option { background: #111318; }
+  #lang-flag { font-size: 1rem; line-height: 1; }
+
+  /* ── Opacity slider ───────────────────────────────────────────────────── */
+  .opacity-wrap { display: flex; align-items: center; gap: 5px; }
+  .opacity-icon { font-size: 0.8rem; color: rgba(255,255,255,0.35); user-select: none; }
+  #opacity-slider {
+    width: 70px; height: 3px; cursor: pointer; outline: none;
+    -webkit-appearance: none; appearance: none;
+    background: rgba(255,255,255,0.18); border-radius: 2px;
+  }
+  #opacity-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 13px; height: 13px; border-radius: 50%;
+    background: rgba(255,255,255,0.65);
+    cursor: pointer; transition: background 0.15s;
+  }
+  #opacity-slider::-webkit-slider-thumb:hover { background: #fff; }
+
+  /* ── Scrollable area ──────────────────────────────────────────────────── */
+  #text-scroll {
+    flex: 1; min-height: 0;
+    overflow-y: auto;
+    padding: 10px 0 6px;
+  }
+  #text-scroll::-webkit-scrollbar { width: 4px; }
+  #text-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+
+  /* ── Two-column paragraph rows ────────────────────────────────────────── */
+  .para-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    padding: 4px 0;
+    line-height: 1.6;
+    font-size: 1.05rem;
+    word-break: break-word;
+  }
+
+  /* Subtle vertical divider */
+  .col-en {
+    padding: 0 10px 0 16px;
+  }
+  .col-ru {
+    padding: 0 16px 0 10px;
+    border-left: 1px solid rgba(255,255,255,0.07);
+  }
+
+  /* Confirmed paragraphs — dimmed */
+  .confirmed-row .col-en { color: rgba(232,234,240,0.50); }
+  .confirmed-row .col-ru { color: rgba(196,181,253,0.45); }
+
+  /* Empty RU cell placeholder while translation loads */
+  .col-ru:empty::after { content: '…'; opacity: 0.25; }
+
+  /* Separator between confirmed paragraph groups */
+  .para-sep {
+    border: none;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    margin: 4px 16px;
+  }
+
+  /* Live draft row */
+  #draft-row { display: none; }
+  #draft-row .col-en { color: #ffffff; font-weight: 500; }
+  #draft-row .col-ru { color: #c4b5fd; }
+
+  /* ── Answer panel ────────────────────────────────────────────────────── */
+  #answer-panel {
+    display: none;
+    flex-shrink: 0;
+    flex-direction: column;
+    border-top: 1px solid rgba(74,222,128,0.15);
+    background: rgba(5, 30, 12, 0.60);
+    max-height: 200px;
+  }
+  #answer-panel.visible { display: flex; }
+  #answer-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 16px 4px;
+    flex-shrink: 0;
+    border-bottom: 1px solid rgba(74,222,128,0.08);
+  }
+  #answer-label {
+    font-size: 0.62rem; font-weight: 600; letter-spacing: 0.07em;
+    text-transform: uppercase; color: rgba(74,222,128,0.55);
+  }
+  #answer-dismiss {
+    font-size: 11px; color: rgba(74,222,128,0.35);
+    background: none; border: none; cursor: pointer; padding: 0;
+    line-height: 1;
+  }
+  #answer-dismiss:hover { color: rgba(74,222,128,0.7); }
+
+  #answer-list {
+    overflow-y: auto;
+    padding: 4px 16px 8px;
+  }
+  #answer-list::-webkit-scrollbar { width: 4px; }
+  #answer-list::-webkit-scrollbar-thumb { background: rgba(74,222,128,0.2); border-radius: 2px; }
+
+  .answer-entry {
+    padding: 5px 0;
+    font-size: 0.93rem; line-height: 1.55;
+    color: #86efac;
+    word-break: break-word;
+    border-bottom: 1px solid rgba(74,222,128,0.08);
+    transition: background 0.15s;
+    border-radius: 4px;
+  }
+  .answer-entry:last-child { border-bottom: none; }
+  .answer-entry.active {
+    background: rgba(74,222,128,0.08);
+    padding-left: 6px;
+  }
+
+  .answer-nav {
+    width: 30px; height: 30px;
+    border-radius: 7px;
+    background: rgba(74,222,128,0.12);
+    border: 1px solid rgba(74,222,128,0.25);
+    color: rgba(74,222,128,0.85);
+    font-size: 1.1rem; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .answer-nav:hover:not(:disabled) { background: rgba(74,222,128,0.25); }
+  .answer-nav:disabled { opacity: 0.2; cursor: default; }
+
+  /* ── Topic toggle button ─────────────────────────────────────────────── */
+  /* Emoji icons (💬💡) read as "on" on their own regardless of CSS state —
+     dim/desaturate them while inactive so off actually looks off. */
+  #btn-topics, #btn-auto { background: rgba(255,255,255,0.06); color: #9ca3af; filter: grayscale(1) opacity(0.5); }
+  #btn-topics:hover:not(:disabled), #btn-auto:hover:not(:disabled) { background: rgba(255,255,255,0.12); }
+  #btn-topics.active, #btn-auto.active { filter: none; }
+  #btn-topics.active { background: rgba(96,165,250,0.22); border: 1px solid rgba(96,165,250,0.4); color: #93c5fd; }
+  #btn-auto.active { background: rgba(74,222,128,0.22); border: 1px solid rgba(74,222,128,0.4); color: #86efac; }
+  #btn-topics:disabled, #btn-auto:disabled { opacity: 0.4; cursor: default; }
+
+  /* ── Topic marker ─────────────────────────────────────────────────────── */
+  #topic-marker {
+    display: none;
+    flex-shrink: 0;
+    align-items: center; gap: 8px;
+    padding: 6px 16px;
+    border-top: 1px solid rgba(96,165,250,0.15);
+    background: rgba(10, 20, 40, 0.60);
+    font-size: 0.88rem; line-height: 1.4;
+    color: #93c5fd;
+  }
+  #topic-marker.visible { display: flex; }
+  #topic-marker .topic-icon { flex-shrink: 0; }
+  #topic-marker .topic-text { flex: 1; word-break: break-word; }
+  #topic-marker .topic-text b { color: #bfdbfe; }
+  #topic-dismiss {
+    font-size: 11px; color: rgba(147,197,253,0.4);
+    background: none; border: none; cursor: pointer; padding: 0; flex-shrink: 0;
+  }
+  #topic-dismiss:hover { color: rgba(147,197,253,0.8); }
+
+  /* ── Jump button ──────────────────────────────────────────────────────── */
+  #jump-btn {
+    display: none;
+    position: fixed; bottom: 26px; right: 14px;
+    background: rgba(79,142,247,0.85); color: #fff;
+    border: none; border-radius: 20px;
+    padding: 4px 12px; font-size: 0.72rem; font-weight: 600;
+    cursor: pointer; z-index: 10;
+  }
+  #jump-btn.visible { display: block; }
+
+  /* ── Status ───────────────────────────────────────────────────────────── */
+  #statusbar {
+    flex-shrink: 0; padding: 2px 16px 5px;
+    font-size: 0.62rem; color: rgba(255,255,255,0.16); text-align: right;
+  }
+</style>
+</head>
+<body>
+<div id="root">
+  <div id="toprow">
+    <button class="ctrl-btn" id="btn-rec"><span class="rec-dot"></span> START</button>
+    <div class="drag-dots"></div>
+    <div class="opacity-wrap">
+      <span class="opacity-icon">◑</span>
+      <input type="range" id="opacity-slider" min="15" max="100" value="85" step="5">
+    </div>
+    <span id="lang-flag">—</span>
+    <select class="lang-select" id="lang-select"></select>
+    <button class="ctrl-btn" id="btn-topics" title="Toggle topic hints">💬</button>
+    <button class="ctrl-btn" id="btn-auto" title="Toggle automatic hints">💡</button>
+    <button class="ctrl-btn" id="btn-close">✕</button>
+  </div>
+
+  <div id="text-scroll">
+    <div id="para-list"></div>
+    <!-- Live draft — always last row -->
+    <div class="para-row" id="draft-row">
+      <div class="col-en" id="en-draft"></div>
+      <div class="col-ru" id="ru-draft"></div>
+    </div>
+  </div>
+
+  <!-- Topic marker — current subject being discussed (toggleable) -->
+  <div id="topic-marker">
+    <span class="topic-icon">💬</span>
+    <span class="topic-text" id="topic-text"></span>
+    <button id="topic-dismiss">✕</button>
+  </div>
+
+  <!-- Answer / hints panel -->
+  <div id="answer-panel">
+    <div id="answer-header">
+      <span id="answer-label">💡 Hints</span>
+      <div style="display:flex;align-items:center;gap:6px">
+        <button class="answer-nav" id="answer-prev" title="Newer">↑</button>
+        <button class="answer-nav" id="answer-next" title="Older">↓</button>
+        <button id="answer-dismiss">✕ clear</button>
+      </div>
+    </div>
+    <div id="answer-list"></div>
+  </div>
+
+  <button id="jump-btn">↓ Latest</button>
+  <div id="statusbar">not connected</div>
+</div>
+
+<script>
+const PORT = window.electronAPI?.backendPort ?? 8765
+
+const LANGUAGES = [
+  { value: '',           flag: '—',   label: 'No Translation' },
+  { value: 'Arabic',     flag: '🇸🇦', label: 'Arabic'         },
+  { value: 'Chinese',    flag: '🇨🇳', label: 'Chinese'        },
+  { value: 'French',     flag: '🇫🇷', label: 'French'         },
+  { value: 'German',     flag: '🇩🇪', label: 'German'         },
+  { value: 'Hindi',      flag: '🇮🇳', label: 'Hindi'          },
+  { value: 'Italian',    flag: '🇮🇹', label: 'Italian'        },
+  { value: 'Japanese',   flag: '🇯🇵', label: 'Japanese'       },
+  { value: 'Korean',     flag: '🇰🇷', label: 'Korean'         },
+  { value: 'Portuguese', flag: '🇧🇷', label: 'Portuguese'     },
+  { value: 'Russian',    flag: '🇷🇺', label: 'Russian'        },
+  { value: 'Spanish',    flag: '🇪🇸', label: 'Spanish'        },
+  { value: 'Ukrainian',  flag: '🇺🇦', label: 'Ukrainian'      },
+]
+
+const btnRec        = document.getElementById('btn-rec')
+const btnClose      = document.getElementById('btn-close')
+const langFlag      = document.getElementById('lang-flag')
+const langSel       = document.getElementById('lang-select')
+const opacitySlider = document.getElementById('opacity-slider')
+const paraList = document.getElementById('para-list')
+const draftRow = document.getElementById('draft-row')
+const enDraftEl = document.getElementById('en-draft')
+const ruDraftEl = document.getElementById('ru-draft')
+const textScroll = document.getElementById('text-scroll')
+const jumpBtn    = document.getElementById('jump-btn')
+const statusEl   = document.getElementById('statusbar')
+const answerPanel   = document.getElementById('answer-panel')
+const answerList    = document.getElementById('answer-list')
+const answerDismiss = document.getElementById('answer-dismiss')
+const answerPrev    = document.getElementById('answer-prev')
+const answerNext    = document.getElementById('answer-next')
+const btnTopics     = document.getElementById('btn-topics')
+const btnAuto       = document.getElementById('btn-auto')
+const topicMarker   = document.getElementById('topic-marker')
+const topicText     = document.getElementById('topic-text')
+const topicDismiss  = document.getElementById('topic-dismiss')
+
+let answerIndex = 0
+
+function goToEntry(idx) {
+  const entries = answerList.querySelectorAll('.answer-entry')
+  if (!entries.length) return
+  answerIndex = Math.max(0, Math.min(idx, entries.length - 1))
+  entries.forEach(e => e.classList.remove('active'))
+  entries[answerIndex].classList.add('active')
+  entries[answerIndex].scrollIntoView({ block: 'nearest' })
+  answerPrev.disabled = answerIndex === 0
+  answerNext.disabled = answerIndex === entries.length - 1
+}
+
+answerPrev.addEventListener('click', () => goToEntry(answerIndex - 1))
+answerNext.addEventListener('click', () => goToEntry(answerIndex + 1))
+
+answerDismiss.addEventListener('click', () => {
+  answerList.innerHTML = ''
+  answerPanel.classList.remove('visible')
+  answerIndex = 0
+})
+
+LANGUAGES.forEach(l => {
+  const o = document.createElement('option')
+  o.value = l.value; o.textContent = l.label
+  langSel.appendChild(o)
+})
+langSel.addEventListener('change', () => {
+  langFlag.textContent = (LANGUAGES.find(x => x.value === langSel.value) || LANGUAGES[0]).flag
+})
+langFlag.textContent = LANGUAGES[0].flag
+
+// ── Opacity slider (controls whole window opacity via Electron) ───────────
+function applyOpacity(v) {
+  window.electronAPI?.setWindowOpacity(v / 100)
+}
+const savedOpacity = localStorage.getItem('winOpacity')
+if (savedOpacity) { opacitySlider.value = savedOpacity; applyOpacity(savedOpacity) }
+else applyOpacity(opacitySlider.value)
+opacitySlider.addEventListener('input', () => {
+  applyOpacity(opacitySlider.value)
+  localStorage.setItem('winOpacity', opacitySlider.value)
+})
+
+// ── Topic hints toggle ──────────────────────────────────────────────────────
+let topicsEnabled = localStorage.getItem('topicHintsEnabled') === 'true'
+btnTopics.classList.toggle('active', topicsEnabled)
+btnTopics.addEventListener('click', () => {
+  if (isRecording) return
+  topicsEnabled = !topicsEnabled
+  btnTopics.classList.toggle('active', topicsEnabled)
+  localStorage.setItem('topicHintsEnabled', topicsEnabled)
+})
+topicDismiss.addEventListener('click', () => topicMarker.classList.remove('visible'))
+
+// ── Automatic hints toggle ──────────────────────────────────────────────────
+let autoHintsEnabled = localStorage.getItem('autoHintsEnabled') === 'true'
+btnAuto.classList.toggle('active', autoHintsEnabled)
+btnAuto.addEventListener('click', () => {
+  if (isRecording) return
+  autoHintsEnabled = !autoHintsEnabled
+  btnAuto.classList.toggle('active', autoHintsEnabled)
+  localStorage.setItem('autoHintsEnabled', autoHintsEnabled)
+})
+
+// ── Manual "ask about selection" — select text, hold still for 2s ──────────
+let selectionTimer = null
+let lastAskedSelection = ''
+
+function isSelectionInTranscript(sel) {
+  if (!sel.rangeCount) return false
+  const node = sel.getRangeAt(0).commonAncestorContainer
+  return textScroll.contains(node.nodeType === 1 ? node : node.parentNode)
+}
+
+document.addEventListener('selectionchange', () => {
+  if (selectionTimer) { clearTimeout(selectionTimer); selectionTimer = null }
+  const sel = window.getSelection()
+  const text = sel.toString().trim()
+  if (!text || !isSelectionInTranscript(sel) || text === lastAskedSelection) return
+
+  selectionTimer = setTimeout(() => {
+    if (window.getSelection().toString().trim() === text && ws?.readyState === WebSocket.OPEN) {
+      lastAskedSelection = text
+      ws.send(JSON.stringify({ type: 'ask', text }))
+    }
+  }, 1000)
+})
+
+// ── Scroll ────────────────────────────────────────────────────────────────
+let pinned = true
+function atBottom() { return textScroll.scrollHeight - textScroll.scrollTop - textScroll.clientHeight < 50 }
+textScroll.addEventListener('scroll', () => {
+  pinned = atBottom()
+  jumpBtn.classList.toggle('visible', !pinned)
+}, { passive: true })
+jumpBtn.addEventListener('click', () => {
+  pinned = true; textScroll.scrollTop = textScroll.scrollHeight
+  jumpBtn.classList.remove('visible')
+})
+function smartScroll(hasDraft) { if (pinned && hasDraft) textScroll.scrollTop = textScroll.scrollHeight }
+
+// ── Text state ────────────────────────────────────────────────────────────
+let confirmedEn = '', confirmedRu = ''
+let currentEn = '', currentRu = ''
+
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
+
+function splitParas(text) {
+  return text ? text.split('\n\n').map(s => s.trim()).filter(Boolean) : []
+}
+
+function renderConfirmed() {
+  const enParas = splitParas(confirmedEn)
+  const ruParas = splitParas(confirmedRu)
+  const count = Math.max(enParas.length, ruParas.length)
+  paraList.innerHTML = ''
+  for (let i = 0; i < count; i++) {
+    if (i > 0) {
+      const sep = document.createElement('hr')
+      sep.className = 'para-sep'
+      paraList.appendChild(sep)
+    }
+    const row = document.createElement('div')
+    row.className = 'para-row confirmed-row'
+    row.innerHTML = `<div class="col-en">${esc(enParas[i] || '')}</div><div class="col-ru">${esc(ruParas[i] || '')}</div>`
+    paraList.appendChild(row)
+  }
+}
+
+function renderDraft() {
+  enDraftEl.textContent = currentEn
+  ruDraftEl.textContent = currentRu
+  draftRow.style.display = (currentEn || currentRu) ? 'grid' : 'none'
+}
+
+function render(scroll) {
+  renderConfirmed()
+  renderDraft()
+  smartScroll(scroll)
+}
+
+// ── AudioWorklet ──────────────────────────────────────────────────────────
+const WORKLET = `
+class PCMProcessor extends AudioWorkletProcessor {
+  constructor() { super(); this._buf = []; this._size = 4096; }
+  process(inputs) {
+    const ch = inputs[0]?.[0]; if (!ch) return true;
+    for (let i = 0; i < ch.length; i++) this._buf.push(ch[i]);
+    if (this._buf.length >= this._size) {
+      this.port.postMessage(new Float32Array(this._buf)); this._buf = [];
+    }
+    return true;
+  }
+}
+registerProcessor('pcm-processor', PCMProcessor);
+`
+
+let ws = null, audioCtx = null, stream = null, workletNode = null
+let isRecording = false, lastWid = 0
+
+function setStatus(t) { statusEl.textContent = t }
+
+// ── Messages ──────────────────────────────────────────────────────────────
+function onMessage(msg) {
+  if (msg.type === 'ready') {
+    setStatus(`${msg.model} · ${msg.llm || 'no translation'}`)
+
+  } else if (msg.type === 'transcript') {
+    lastWid = msg.wid
+    confirmedEn = msg.confirmed_en || ''
+    currentEn   = msg.current_en   || ''
+    if (!msg.current_ru && msg.current_en) currentRu = '…'
+    render(!!currentEn)
+
+  } else if (msg.type === 'translation') {
+    if (msg.wid >= lastWid) {
+      currentRu = msg.current_ru || ''
+      renderDraft()
+      smartScroll(!!currentRu)
+    }
+
+  } else if (msg.type === 'commit') {
+    confirmedEn = msg.confirmed_en || ''
+    confirmedRu = msg.confirmed_ru || ''
+    currentEn = ''; currentRu = ''
+    render(false)  // no scroll on commit — user keeps reading position
+
+  } else if (msg.type === 'ru_update') {
+    confirmedRu = msg.confirmed_ru || ''
+    renderConfirmed()  // update RU column without changing scroll
+
+  } else if (msg.type === 'answer') {
+    const entry = document.createElement('div')
+    entry.className = 'answer-entry'
+    entry.textContent = msg.text
+    answerList.prepend(entry)
+    answerPanel.classList.add('visible')
+    goToEntry(0)
+
+  } else if (msg.type === 'topic') {
+    topicText.innerHTML = ''
+    const b = document.createElement('b')
+    b.textContent = msg.topic
+    topicText.appendChild(b)
+    topicText.appendChild(document.createTextNode(' — ' + msg.definition))
+    topicMarker.classList.add('visible')
+
+  } else if (msg.type === 'error') {
+    setStatus('error: ' + msg.message); stopRecording()
+  }
+}
+
+// ── WebSocket ─────────────────────────────────────────────────────────────
+function connectWS(sampleRate) {
+  ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`)
+  ws.onopen    = () => { ws.send(JSON.stringify({ sampleRate, targetLang: langSel.value, topicHints: topicsEnabled, autoHints: autoHintsEnabled })); setStatus('connected…') }
+  ws.onmessage = ev => onMessage(JSON.parse(ev.data))
+  ws.onclose   = () => { if (isRecording) { setStatus('disconnected'); stopRecording() } }
+  ws.onerror   = () => setStatus('ws error')
+}
+
+// ── Audio ─────────────────────────────────────────────────────────────────
+async function startRecording() {
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false }) }
+  catch (e) { setStatus('mic denied: ' + e.message); return }
+
+  audioCtx = new AudioContext()
+  const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }))
+  await audioCtx.audioWorklet.addModule(url); URL.revokeObjectURL(url)
+
+  const source = audioCtx.createMediaStreamSource(stream)
+  workletNode  = new AudioWorkletNode(audioCtx, 'pcm-processor')
+  workletNode.port.onmessage = e => { if (ws?.readyState === WebSocket.OPEN) ws.send(e.data.buffer) }
+  source.connect(workletNode)
+
+  isRecording = true; langSel.disabled = true; btnTopics.disabled = true; btnAuto.disabled = true
+  btnRec.classList.add('recording')
+  btnRec.innerHTML = '<span class="rec-dot"></span> STOP'
+  connectWS(audioCtx.sampleRate)
+}
+
+function stopRecording() {
+  isRecording = false; langSel.disabled = false; btnTopics.disabled = false; btnAuto.disabled = false
+  ws?.close(); ws = null
+  workletNode?.disconnect(); workletNode = null
+  audioCtx?.close(); audioCtx = null
+  stream?.getTracks().forEach(t => t.stop()); stream = null
+  btnRec.classList.remove('recording')
+  btnRec.innerHTML = '<span class="rec-dot"></span> START'
+  setStatus('stopped')
+}
+
+btnRec.addEventListener('click', () => isRecording ? stopRecording() : startRecording())
+btnClose.addEventListener('click', () => { stopRecording(); window.electronAPI?.quit() })
+</script>
+</body>
+</html>

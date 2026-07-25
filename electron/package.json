@@ -1,0 +1,12 @@
+{
+  "name": "transcriberonthefly",
+  "version": "1.0.0",
+  "description": "Real-time transcription overlay",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^34.0.0"
+  }
+}
