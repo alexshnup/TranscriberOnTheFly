@@ -40,6 +40,7 @@ MIN_WORDS_FOR_COMMIT = 7           # merge short fragments instead of starting a
 MAX_PENDING_MERGES = 3             # force-commit after this many short-fragment merges
 PENDING_GRACE_SECS = 1.5           # commit a short pending segment anyway if nothing more arrives
 DRAFT_TRANSLATE_THROTTLE = 1.0     # min seconds between live-draft translation calls
+MAX_SESSION_SECONDS = 60 * 60      # auto-stop a session after this long, in case Stop is never clicked
 
 ANSWER_PROMPT_TEMPLATE = (
     "You are a knowledgeable friend listening to a conversation.\n"
@@ -303,9 +304,9 @@ async def ws_endpoint(ws: WebSocket):
 
     # ── State ─────────────────────────────────────────────────────────────
     confirmed_paras_en: list[str] = []   # one entry per committed segment
-    confirmed_paras_ru: list[str] = []
+    confirmed_paras_tr: list[str] = []
     current_en = ""                      # text shown as the live draft (pending + streaming)
-    current_ru = ""
+    current_tr = ""
     pending_en = ""                      # merged short fragments not yet promoted to a paragraph
     pending_merges = 0
     live_en = ""                         # deltas accumulated since the last completed event
@@ -330,8 +331,8 @@ async def ws_endpoint(ws: WebSocket):
     def full_confirmed_en() -> str:
         return _join_paras(confirmed_paras_en)
 
-    def full_confirmed_ru() -> str:
-        return _join_paras(confirmed_paras_ru)
+    def full_confirmed_tr() -> str:
+        return _join_paras(confirmed_paras_tr)
 
     async def safe_send(payload: dict):
         try:
@@ -347,7 +348,7 @@ async def ws_endpoint(ws: WebSocket):
 
     # ── Commit a transcribed segment ──────────────────────────────────────
     async def do_commit(segment_en: str):
-        nonlocal current_en, current_ru, pending_en, pending_merges, live_en
+        nonlocal current_en, current_tr, pending_en, pending_merges, live_en
 
         _cancel_pending_timer()
 
@@ -355,31 +356,31 @@ async def ws_endpoint(ws: WebSocket):
             if segment_en:
                 confirmed_paras_en.append(capitalize_first(clean_text(segment_en)))
             current_en = ""
-            current_ru = ""
+            current_tr = ""
             pending_en = ""
             pending_merges = 0
             live_en = ""
 
         snap_en = full_confirmed_en()
-        snap_ru = full_confirmed_ru()
+        snap_tr = full_confirmed_tr()
         print(f"[commit] paras={len(confirmed_paras_en)}  last={segment_en!r:.60}")
 
         await safe_send({
             "type": "commit",
             "confirmed_en": snap_en,
-            "confirmed_ru": snap_ru,
+            "confirmed_tr": snap_tr,
         })
 
         async def translate_committed(seg=segment_en):
             if not seg:
                 return
-            ru = await translate_text(llm_client, llm_model, seg, target_lang)
-            if ru:
+            tr = await translate_text(llm_client, llm_model, seg, target_lang)
+            if tr:
                 async with text_lock:
-                    confirmed_paras_ru.append(ru.strip())
+                    confirmed_paras_tr.append(tr.strip())
                 await safe_send({
-                    "type": "ru_update",
-                    "confirmed_ru": full_confirmed_ru(),
+                    "type": "translation_update",
+                    "confirmed_tr": full_confirmed_tr(),
                 })
 
         asyncio.create_task(translate_committed())
@@ -475,7 +476,7 @@ async def ws_endpoint(ws: WebSocket):
 
         # ── Handle transcript events from the realtime session ──────────────
         async def asr_recv_loop():
-            nonlocal current_en, current_ru, pending_en, pending_merges, live_en, latest_wid, last_translate_ts, pending_commit_task
+            nonlocal current_en, current_tr, pending_en, pending_merges, live_en, latest_wid, last_translate_ts, pending_commit_task
 
             async for event in conn:
                 if event.type == "conversation.item.input_audio_transcription.delta":
@@ -487,15 +488,15 @@ async def ws_endpoint(ws: WebSocket):
                         current_en = merge_fragments(pending_en, live_en)
                         wid = latest_wid
                         snap_en = full_confirmed_en()
-                        snap_ru = full_confirmed_ru()
-                        draft_ru = current_ru
+                        snap_tr = full_confirmed_tr()
+                        draft_tr = current_tr
 
                     await safe_send({
                         "type": "transcript",
                         "confirmed_en": snap_en,
                         "current_en": current_en,
-                        "confirmed_ru": snap_ru,
-                        "current_ru": draft_ru,
+                        "confirmed_tr": snap_tr,
+                        "current_tr": draft_tr,
                         "wid": wid,
                     })
 
@@ -504,13 +505,13 @@ async def ws_endpoint(ws: WebSocket):
                         if now - last_translate_ts >= DRAFT_TRANSLATE_THROTTLE:
                             last_translate_ts = now
                             draft_snapshot = current_en
-                            ru = await translate_text(llm_client, llm_model, draft_snapshot, target_lang)
-                            if ru:
+                            tr = await translate_text(llm_client, llm_model, draft_snapshot, target_lang)
+                            if tr:
                                 async with text_lock:
                                     if wid < latest_wid:
                                         continue
-                                    current_ru = ru
-                                await safe_send({"type": "translation", "current_ru": ru, "wid": wid})
+                                    current_tr = tr
+                                await safe_send({"type": "translation", "current_tr": tr, "wid": wid})
 
                 elif event.type == "conversation.item.input_audio_transcription.completed":
                     text = clean_text(event.transcript or "")
@@ -538,13 +539,13 @@ async def ws_endpoint(ws: WebSocket):
                             pending_en = merged
                             current_en = merged
                             snap_en = full_confirmed_en()
-                            snap_ru = full_confirmed_ru()
+                            snap_tr = full_confirmed_tr()
                         await safe_send({
                             "type": "transcript",
                             "confirmed_en": snap_en,
                             "current_en": merged,
-                            "confirmed_ru": snap_ru,
-                            "current_ru": "",
+                            "confirmed_tr": snap_tr,
+                            "current_tr": "",
                             "wid": latest_wid,
                         })
                         if pending_commit_task:
@@ -558,9 +559,17 @@ async def ws_endpoint(ws: WebSocket):
         send_task = asyncio.create_task(asr_send_loop())
         recv_task = asyncio.create_task(asr_recv_loop())
         try:
-            await asyncio.gather(send_task, recv_task)
+            await asyncio.wait_for(
+                asyncio.gather(send_task, recv_task), timeout=MAX_SESSION_SECONDS
+            )
         except WebSocketDisconnect:
             print("[session] disconnected")
+        except asyncio.TimeoutError:
+            print(f"[session] auto-stopped after {MAX_SESSION_SECONDS}s")
+            await safe_send({
+                "type": "error",
+                "message": f"Auto-stopped after {MAX_SESSION_SECONDS // 60} minutes",
+            })
         except Exception as exc:
             print(f"[session] error: {exc}")
         finally:
@@ -569,6 +578,10 @@ async def ws_endpoint(ws: WebSocket):
             if pending_commit_task:
                 pending_commit_task.cancel()
             await asyncio.gather(send_task, recv_task, return_exceptions=True)
+            try:
+                await ws.close()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

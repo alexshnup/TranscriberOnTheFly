@@ -28,6 +28,7 @@ Mic → AudioWorklet → WebSocket → Python backend
 - The backend still does its own RMS-based silence detection on the raw audio (`ENERGY_THRESHOLD`/`SILENCE_COMMIT_SECS`/`MIN_SPEECH_FOR_COMMIT`), but only to decide **when to call `input_audio_buffer.commit()`** on the realtime session — `gpt-realtime-whisper` has no server-side VAD of its own
 - Committing finalizes the segment (`...transcription.completed`); if it's shorter than `MIN_WORDS_FOR_COMMIT` words it's merged into the next segment instead of becoming its own paragraph (up to `MAX_PENDING_MERGES` merges before it's committed anyway)
 - `WINDOW_MAX_SECONDS` remains a safety net: force-commit long non-stop speech, and drop long stretches of pure silence instead of committing empty audio
+- `MAX_SESSION_SECONDS` (default 1 hour) auto-stops the whole session if Stop is never clicked — applies to both browser and Electron modes since it's enforced server-side
 
 ## Requirements
 
@@ -102,17 +103,19 @@ The Electron app starts the Python backend automatically on port **8765** (separ
 | **START / STOP** | Begin or end recording |
 | **◑ slider** | Adjust window transparency (saved across sessions) |
 | Language selector | Choose translation language (locked while recording) |
-| **💬 button** | Toggle topic hints on/off (locked while recording, persists across restarts) |
-| **💡 button** | Toggle automatic hints on/off — off by default (locked while recording, persists across restarts) |
+| **💬 / 💡 buttons** | Toggle topic hints / automatic hints — both off by default, locked while recording |
+| Domain field | Bias hints toward a specific field/subject; empty = general answers. Editable anytime, but only read at connect time — set it before hitting Start |
 | **✕** | Close the overlay and stop the backend |
+
+💬, 💡, and the domain field all persist across restarts.
 
 ### Overlay layout
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  [START]  ············  ◑━━━  🇷🇺 Russian 💬💡 [✕]│  ← controls (draggable)
+│  [START]  ············  ◑━━━  🌐 <language> 💬💡[✕]│  ← controls (draggable)
 ├─────────────────────────────────────────────────┤
-│  Confirmed paragraph EN   │  Translation RU      │
+│  Confirmed paragraph EN   │  Translation         │
 │  (dimmed, stays visible)  │  (dimmed)            │
 ├ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┤
 │  Live draft (white)       │  Draft translation   │
@@ -125,26 +128,21 @@ The Electron app starts the Python backend automatically on port **8765** (separ
 
 ### Overlay behaviour
 
-- The window floats above all other apps including Zoom and Meet in full-screen mode
-- Drag the dotted bar to reposition; resize by dragging any edge or corner
-- The opacity slider controls OS-level window transparency — at minimum the window is nearly invisible; at maximum it is fully opaque
-- English transcript on the left, translation on the right, aligned paragraph-by-paragraph
-- Confirmed text stays on screen and scrolls — text never disappears mid-read
-- Auto-scroll follows new content; scroll up manually to read back; **↓ Latest** button jumps back
+- Floats above all other apps, including full-screen Zoom/Meet; resize by dragging any edge or corner
+- English transcript on the left, translation on the right, paragraph-aligned
+- Confirmed text stays on screen and scrolls — never disappears mid-read; auto-scroll follows new content, **↓ Latest** jumps back after scrolling up
 
 ### Interview assistant (💡 panel)
 
-When the transcribed speech contains a technical question (or, if the **💡** toggle is on, any substantive topic), a green panel appears below the transcript with a concise expert answer (3–5 sentences). Click **✕** to dismiss it. The panel stays hidden for non-technical speech and casual questions.
+A green panel with a concise expert answer (3–5 sentences). Three ways to trigger it:
 
-**Automatic mode (💡 toggle, off by default):** when on, this fires on every committed paragraph, same as before this toggle existed.
+- **Direct questions** — always answered, regardless of the 💡 toggle.
+- **Automatic** (💡 toggle) — fires on every committed paragraph that touches a substantive topic, not just questions.
+- **Manual, anytime** — select any transcribed text; a small **Ask** button appears next to it. Click it to get an answer immediately, even after you've hit Stop.
 
-**Manual mode (always available, regardless of the 💡 toggle):** select any already-transcribed text with the mouse — a small **💡 Ask** button appears next to the selection. Click it to send "Tell me about `<selection>`"; the answer appears immediately in the same 💡 panel. Works independently of recording state — you can hit Stop and keep asking about already-transcribed text.
+### Topic hints (💬 marker)
 
-**Domain field:** the text box next to the language selector (e.g. `HVAC`) biases the manual select-and-ask flow, the automatic 💡 hints, and 💬 topic detection all toward that field — without it, an ambiguous phrase like "high pressure control in safety system" gets a generic/wrong-industry guess (e.g. oil & gas); with `HVAC` set, all three correctly interpret it in HVAC terms. Persists across restarts. Read fresh at connect time for the automatic 💡/💬 hints (so change it before hitting Start for those to pick it up), but the manual ask button always uses the current value regardless of recording state.
-
-### Topic hints (💬 marker, toggleable)
-
-Unlike the 💡 panel (which only fires on direct questions), this reacts to *any* committed segment that mentions a specific identifiable subject — even without a question being asked — and shows a one-line marker: **"Ansible — a short definition"**. Off by default; enable with the **💬** button in the controls bar (locked while recording, like the language selector). To avoid spam, a topic is only announced once — it won't re-fire on every paragraph while the conversation stays on the same subject, only when it actually changes. Always in English, regardless of the translation language.
+Reacts to *any* committed segment that mentions a specific identifiable subject — even without a question — and shows a one-line marker: "Ansible — a short definition." Only announced once per subject; won't re-fire while the conversation stays on the same topic, only when it changes. Always in English, regardless of the translation language.
 
 ## Tuning parameters
 
@@ -161,6 +159,7 @@ All in `main.py` at the top of the file:
 | `ENERGY_THRESHOLD` | `0.006` | RMS amplitude below which audio is treated as silence. Raise if background noise keeps triggering; lower if mic is weak |
 | `REALTIME_DELAY` | `"low"` | `gpt-realtime-whisper`'s latency/accuracy tradeoff for streamed deltas (`minimal`/`low`/`medium`/`high`/`xhigh`) |
 | `DRAFT_TRANSLATE_THROTTLE` | `1.0` | Minimum seconds between live-draft translation calls (deltas arrive far more often than that) |
+| `MAX_SESSION_SECONDS` | `3600` | Auto-stop a recording session after this long (safety net in case Stop is never clicked — sends an `error` message and closes the connection; both frontends already react to that by stopping cleanly) |
 
 ### Tuning for different scenarios
 
@@ -213,20 +212,21 @@ transcriberonthefly/
 | Type | Direction | Payload |
 |---|---|---|
 | `ready` | server → client | `{ model, llm }` |
-| `transcript` | server → client | `{ confirmed_en, current_en, confirmed_ru, current_ru, wid }` |
-| `translation` | server → client | `{ current_ru, wid }` |
-| `commit` | server → client | `{ confirmed_en, confirmed_ru }` |
-| `ru_update` | server → client | `{ confirmed_ru }` |
+| `transcript` | server → client | `{ confirmed_en, current_en, confirmed_tr, current_tr, wid }` |
+| `translation` | server → client | `{ current_tr, wid }` |
+| `commit` | server → client | `{ confirmed_en, confirmed_tr }` |
+| `translation_update` | server → client | `{ confirmed_tr }` |
 | `answer` | server → client | `{ text }` — interview answer suggestion |
 | `topic` | server → client | `{ topic, definition }` — current subject being discussed (only if `topicHints` was enabled at connect time; fires once per topic, not on every paragraph) |
 | `error` | server → client | `{ message }` |
-| `ask` | client → server | `{ text }` — manual "tell me about this" request (selected transcript text); answered with a normal `answer` message |
+
+The manual select-and-ask flow isn't part of this WebSocket — it's a separate `POST /ask` HTTP request (`{ text, domain }` → `{ text }`), which is why it still works after Stop.
 
 ## Known limitations
 
 - **ASR requires OpenAI** — `gpt-realtime-whisper` is only available through OpenAI's Realtime API; Groq cannot be used for transcription
 - **Silence detection is energy-based** — cannot distinguish a breath from a sentence boundary; `MIN_WORDS_FOR_COMMIT` compensates for most false positives
-- **Live-draft translation is throttled** (`DRAFT_TRANSLATE_THROTTLE`) — the English draft streams word-by-word, but its translation only refreshes about once a second; committed-paragraph translation (`ru_update`) is not throttled
+- **Live-draft translation is throttled** (`DRAFT_TRANSLATE_THROTTLE`) — the English draft streams word-by-word, but its translation only refreshes about once a second; committed-paragraph translation (`translation_update`) is not throttled
 - **Browser mode** — AudioWorklet not available in Safari on older macOS; use Chrome or Firefox
 - **Electron overlay** — Python binary path is hardcoded to `/opt/homebrew/opt/python@3.11/bin/python3.11`; edit `electron/main.js` if your path differs
 - **Interview assistant** — question relevance is judged entirely by the LLM prompt (no regex pre-filter); may occasionally trigger on rhetorical or non-technical questions

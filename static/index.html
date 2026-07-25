@@ -17,7 +17,7 @@
     --text: #e8eaf0;
     --muted: #6b7280;
     --draft-en: #7eb8ff;
-    --draft-ru: #b8a4ff;
+    --draft-tr: #b8a4ff;
   }
 
   html, body {
@@ -129,7 +129,7 @@
     font-weight: 400;
     text-transform: none;
     letter-spacing: 0;
-    color: var(--draft-ru);
+    color: var(--draft-tr);
     opacity: 0;
     transition: opacity 0.3s;
   }
@@ -204,11 +204,11 @@
     color: var(--draft-en);
     transition: opacity 0.15s;
   }
-  .draft-ru {
-    color: var(--draft-ru);
+  .draft-tr {
+    color: var(--draft-tr);
     transition: opacity 0.15s;
   }
-  .draft-en.fading, .draft-ru.fading { opacity: 0.4; }
+  .draft-en.fading, .draft-tr.fading { opacity: 0.4; }
 
   .placeholder {
     color: var(--muted);
@@ -317,13 +317,13 @@
         <select class="lang-select" id="lang-select"></select>
         <span class="translating-badge" id="translating-badge">translating…</span>
       </div>
-      <div class="panel-body" id="ru-body">
-        <div class="placeholder" id="ru-placeholder">Translation will appear here</div>
-        <div class="panel-text" id="ru-text" style="display:none">
-          <span class="confirmed" id="ru-confirmed"></span><span class="draft-ru" id="ru-draft"></span>
+      <div class="panel-body" id="tr-body">
+        <div class="placeholder" id="tr-placeholder">Translation will appear here</div>
+        <div class="panel-text" id="tr-text" style="display:none">
+          <span class="confirmed" id="tr-confirmed"></span><span class="draft-tr" id="tr-draft"></span>
         </div>
       </div>
-      <button class="jump-btn" id="ru-jump">↓ Latest</button>
+      <button class="jump-btn" id="tr-jump">↓ Latest</button>
     </div>
   </div>
 
@@ -338,7 +338,7 @@
         Draft EN
       </div>
       <div class="legend-item">
-        <div class="legend-dot" style="background:var(--draft-ru)"></div>
+        <div class="legend-dot" style="background:var(--draft-tr)"></div>
         Draft TR
       </div>
     </div>
@@ -417,12 +417,12 @@ const enDraft       = document.getElementById('en-draft');
 const enBody        = document.getElementById('en-body');
 const enJump        = document.getElementById('en-jump');
 
-const ruPlaceholder = document.getElementById('ru-placeholder');
-const ruText        = document.getElementById('ru-text');
-const ruConfirmed   = document.getElementById('ru-confirmed');
-const ruDraft       = document.getElementById('ru-draft');
-const ruBody        = document.getElementById('ru-body');
-const ruJump        = document.getElementById('ru-jump');
+const trPlaceholder = document.getElementById('tr-placeholder');
+const trText        = document.getElementById('tr-text');
+const trConfirmed   = document.getElementById('tr-confirmed');
+const trDraft       = document.getElementById('tr-draft');
+const trBody        = document.getElementById('tr-body');
+const trJump        = document.getElementById('tr-jump');
 const langFlag      = document.getElementById('lang-flag');
 const langSelect    = document.getElementById('lang-select');
 
@@ -436,7 +436,7 @@ LANGUAGES.forEach(lang => {
 
 function applyLang(lang) {
   langFlag.textContent = lang.flag;
-  ruPlaceholder.textContent = lang.value
+  trPlaceholder.textContent = lang.value
     ? 'Translation will appear here'
     : 'Translation disabled — select a language above';
 }
@@ -458,7 +458,7 @@ const SCROLL_THRESHOLD = 60; // px from bottom = "close enough"
 
 const panels = [
   { body: enBody, jump: enJump, pinned: true },
-  { body: ruBody, jump: ruJump, pinned: true },
+  { body: trBody, jump: trJump, pinned: true },
 ];
 
 function atBottom(el) {
@@ -508,8 +508,8 @@ function showError(msg) {
 function showPanels() {
   enPlaceholder.style.display = 'none';
   enText.style.display = 'block';
-  ruPlaceholder.style.display = 'none';
-  ruText.style.display = 'block';
+  trPlaceholder.style.display = 'none';
+  trText.style.display = 'block';
 }
 
 function setDraft(draftEl, text, hasConfirmed = false) {
@@ -548,18 +548,18 @@ function onMessage(msg) {
     setDraft(enDraft, msg.current_en, hasEn);
     scrollAll();
 
-    const hasRu = !!msg.confirmed_ru;
-    ruConfirmed.textContent = msg.confirmed_ru || '';
-    if (!msg.current_ru) {
+    const hasTr = !!msg.confirmed_tr;
+    trConfirmed.textContent = msg.confirmed_tr || '';
+    if (!msg.current_tr) {
       translatingBadge.classList.add('visible');
-      setDraft(ruDraft, '…', hasRu);
+      setDraft(trDraft, '…', hasTr);
     }
     scrollAll();
 
   } else if (msg.type === 'translation') {
     if (msg.wid >= lastWid) {
       translatingBadge.classList.remove('visible');
-      setDraft(ruDraft, msg.current_ru, !!ruConfirmed.textContent);
+      setDraft(trDraft, msg.current_tr, !!trConfirmed.textContent);
       smartScroll(panels[1]);
     }
 
@@ -567,14 +567,14 @@ function onMessage(msg) {
     // confirmed now contains everything that was the draft — just move it to white
     enConfirmed.textContent = msg.confirmed_en ? msg.confirmed_en : '';
     enDraft.textContent = '';
-    ruConfirmed.textContent = msg.confirmed_ru ? msg.confirmed_ru : '';
-    ruDraft.textContent = '';
+    trConfirmed.textContent = msg.confirmed_tr ? msg.confirmed_tr : '';
+    trDraft.textContent = '';
     translatingBadge.classList.remove('visible');
     scrollAll();
 
-  } else if (msg.type === 'ru_update') {
+  } else if (msg.type === 'translation_update') {
     // Translation of committed segment arrived (slightly after commit)
-    ruConfirmed.textContent = msg.confirmed_ru ? msg.confirmed_ru : '';
+    trConfirmed.textContent = msg.confirmed_tr ? msg.confirmed_tr : '';
     smartScroll(panels[1]);
 
   } else if (msg.type === 'error') {
@@ -653,9 +653,9 @@ function stopRecording() {
 btnStart.addEventListener('click', () => isRecording ? stopRecording() : startRecording());
 
 btnClear.addEventListener('click', () => {
-  [enConfirmed, enDraft, ruConfirmed, ruDraft].forEach(el => el.textContent = '');
-  enText.style.display = ruText.style.display = 'none';
-  enPlaceholder.style.display = ruPlaceholder.style.display = 'block';
+  [enConfirmed, enDraft, trConfirmed, trDraft].forEach(el => el.textContent = '');
+  enText.style.display = trText.style.display = 'none';
+  enPlaceholder.style.display = trPlaceholder.style.display = 'block';
   winCount = 0;
   winCounter.textContent = '';
   translatingBadge.classList.remove('visible');

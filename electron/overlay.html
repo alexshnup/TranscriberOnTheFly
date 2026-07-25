@@ -111,17 +111,17 @@
   .col-en {
     padding: 0 10px 0 16px;
   }
-  .col-ru {
+  .col-tr {
     padding: 0 16px 0 10px;
     border-left: 1px solid rgba(255,255,255,0.07);
   }
 
   /* Confirmed paragraphs — dimmed */
   .confirmed-row .col-en { color: rgba(232,234,240,0.50); }
-  .confirmed-row .col-ru { color: rgba(196,181,253,0.45); }
+  .confirmed-row .col-tr { color: rgba(196,181,253,0.45); }
 
-  /* Empty RU cell placeholder while translation loads */
-  .col-ru:empty::after { content: '…'; opacity: 0.25; }
+  /* Empty translation cell placeholder while translation loads */
+  .col-tr:empty::after { content: '…'; opacity: 0.25; }
 
   /* Separator between confirmed paragraph groups */
   .para-sep {
@@ -133,7 +133,7 @@
   /* Live draft row */
   #draft-row { display: none; }
   #draft-row .col-en { color: #ffffff; font-weight: 500; }
-  #draft-row .col-ru { color: #c4b5fd; }
+  #draft-row .col-tr { color: #c4b5fd; }
 
   /* ── Answer panel ────────────────────────────────────────────────────── */
   #answer-panel {
@@ -287,7 +287,7 @@
     <!-- Live draft — always last row -->
     <div class="para-row" id="draft-row">
       <div class="col-en" id="en-draft"></div>
-      <div class="col-ru" id="ru-draft"></div>
+      <div class="col-tr" id="tr-draft"></div>
     </div>
   </div>
 
@@ -346,7 +346,7 @@ const opacitySlider = document.getElementById('opacity-slider')
 const paraList = document.getElementById('para-list')
 const draftRow = document.getElementById('draft-row')
 const enDraftEl = document.getElementById('en-draft')
-const ruDraftEl = document.getElementById('ru-draft')
+const trDraftEl = document.getElementById('tr-draft')
 const textScroll = document.getElementById('text-scroll')
 const jumpBtn    = document.getElementById('jump-btn')
 const statusEl   = document.getElementById('statusbar')
@@ -497,8 +497,8 @@ jumpBtn.addEventListener('click', () => {
 function smartScroll(hasDraft) { if (pinned && hasDraft) textScroll.scrollTop = textScroll.scrollHeight }
 
 // ── Text state ────────────────────────────────────────────────────────────
-let confirmedEn = '', confirmedRu = ''
-let currentEn = '', currentRu = ''
+let confirmedEn = '', confirmedTr = ''
+let currentEn = '', currentTr = ''
 
 function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
 
@@ -508,8 +508,8 @@ function splitParas(text) {
 
 function renderConfirmed() {
   const enParas = splitParas(confirmedEn)
-  const ruParas = splitParas(confirmedRu)
-  const count = Math.max(enParas.length, ruParas.length)
+  const trParas = splitParas(confirmedTr)
+  const count = Math.max(enParas.length, trParas.length)
   paraList.innerHTML = ''
   for (let i = 0; i < count; i++) {
     if (i > 0) {
@@ -519,15 +519,15 @@ function renderConfirmed() {
     }
     const row = document.createElement('div')
     row.className = 'para-row confirmed-row'
-    row.innerHTML = `<div class="col-en">${esc(enParas[i] || '')}</div><div class="col-ru">${esc(ruParas[i] || '')}</div>`
+    row.innerHTML = `<div class="col-en">${esc(enParas[i] || '')}</div><div class="col-tr">${esc(trParas[i] || '')}</div>`
     paraList.appendChild(row)
   }
 }
 
 function renderDraft() {
   enDraftEl.textContent = currentEn
-  ruDraftEl.textContent = currentRu
-  draftRow.style.display = (currentEn || currentRu) ? 'grid' : 'none'
+  trDraftEl.textContent = currentTr
+  draftRow.style.display = (currentEn || currentTr) ? 'grid' : 'none'
 }
 
 function render(scroll) {
@@ -566,25 +566,25 @@ function onMessage(msg) {
     lastWid = msg.wid
     confirmedEn = msg.confirmed_en || ''
     currentEn   = msg.current_en   || ''
-    if (!msg.current_ru && msg.current_en) currentRu = '…'
+    if (!msg.current_tr && msg.current_en) currentTr = '…'
     render(!!currentEn)
 
   } else if (msg.type === 'translation') {
     if (msg.wid >= lastWid) {
-      currentRu = msg.current_ru || ''
+      currentTr = msg.current_tr || ''
       renderDraft()
-      smartScroll(!!currentRu)
+      smartScroll(!!currentTr)
     }
 
   } else if (msg.type === 'commit') {
     confirmedEn = msg.confirmed_en || ''
-    confirmedRu = msg.confirmed_ru || ''
-    currentEn = ''; currentRu = ''
+    confirmedTr = msg.confirmed_tr || ''
+    currentEn = ''; currentTr = ''
     render(false)  // no scroll on commit — user keeps reading position
 
-  } else if (msg.type === 'ru_update') {
-    confirmedRu = msg.confirmed_ru || ''
-    renderConfirmed()  // update RU column without changing scroll
+  } else if (msg.type === 'translation_update') {
+    confirmedTr = msg.confirmed_tr || ''
+    renderConfirmed()  // update translation column without changing scroll
 
   } else if (msg.type === 'answer') {
     const entry = document.createElement('div')
