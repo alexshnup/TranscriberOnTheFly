@@ -189,7 +189,7 @@ A green panel with a concise expert answer (3–5 sentences). Three ways to trig
 
 - **Direct questions** — always answered, regardless of the 💡 toggle.
 - **Automatic** (💡 toggle) — fires on every committed paragraph that touches a substantive topic, not just questions.
-- **Manual, anytime** — select any transcribed text; a small **Ask** button appears next to it. Click it to get an answer immediately, even after you've hit Stop.
+- **Manual, anytime** — select any transcribed text; a small **Ask** button appears next to it. Click it to get an answer immediately, even after you've hit Stop. Selections snap out to full words on release, so a sloppy drag that stops mid-word still grabs the whole word.
 
 ### Topic hints (💬 marker)
 

@@ -458,6 +458,36 @@ async function askAboutSelection(text) {
   }
 }
 
+// Snap a range's edges out to the nearest word boundaries (whitespace) so a
+// sloppy drag that stops mid-word still grabs the whole word on both ends.
+function snapRangeToWords(range) {
+  const startNode = range.startContainer
+  if (startNode.nodeType === Node.TEXT_NODE) {
+    const text = startNode.textContent
+    let start = range.startOffset
+    while (start > 0 && /\S/.test(text[start - 1])) start--
+    range.setStart(startNode, start)
+  }
+  const endNode = range.endContainer
+  if (endNode.nodeType === Node.TEXT_NODE) {
+    const text = endNode.textContent
+    let end = range.endOffset
+    while (end < text.length && /\S/.test(text[end])) end++
+    range.setEnd(endNode, end)
+  }
+}
+
+// Only snap after the drag ends, not on every selectionchange during the drag
+// itself — snapping mid-drag would fight the user's mouse movement.
+textScroll.addEventListener('mouseup', () => {
+  const sel = window.getSelection()
+  if (sel.isCollapsed || !isSelectionInTranscript(sel)) return
+  const range = sel.getRangeAt(0)
+  snapRangeToWords(range)
+  sel.removeAllRanges()
+  sel.addRange(range)
+})
+
 document.addEventListener('selectionchange', () => {
   const sel = window.getSelection()
   const text = sel.toString().trim()
