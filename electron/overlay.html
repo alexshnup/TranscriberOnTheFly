@@ -479,9 +479,11 @@ function snapRangeToWords(range) {
 
 // Only snap after the drag ends, not on every selectionchange during the drag
 // itself — snapping mid-drag would fight the user's mouse movement.
+// A plain click (no drag) leaves the selection collapsed at the click point —
+// snapping that too means a single click selects the whole word under it.
 textScroll.addEventListener('mouseup', () => {
   const sel = window.getSelection()
-  if (sel.isCollapsed || !isSelectionInTranscript(sel)) return
+  if (!sel.rangeCount || !isSelectionInTranscript(sel)) return
   const range = sel.getRangeAt(0)
   snapRangeToWords(range)
   sel.removeAllRanges()
@@ -536,7 +538,17 @@ function splitParas(text) {
   return text ? text.split('\n\n').map(s => s.trim()).filter(Boolean) : []
 }
 
+// Rebuilding #para-list destroys any text selection inside it (assigning
+// innerHTML replaces the underlying text nodes) — skip the rebuild when the
+// confirmed text hasn't actually changed, since render() is called on every
+// draft delta (word-by-word) but confirmed text only changes on commit.
+let lastRenderedEn = null, lastRenderedTr = null
+
 function renderConfirmed() {
+  if (confirmedEn === lastRenderedEn && confirmedTr === lastRenderedTr) return
+  lastRenderedEn = confirmedEn
+  lastRenderedTr = confirmedTr
+
   const enParas = splitParas(confirmedEn)
   const trParas = splitParas(confirmedTr)
   const count = Math.max(enParas.length, trParas.length)

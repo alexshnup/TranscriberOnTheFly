@@ -512,6 +512,14 @@ function showPanels() {
   trText.style.display = 'block';
 }
 
+// Assigning .textContent always recreates the underlying text node, even if
+// the value is unchanged — which silently clears any active user selection
+// inside it. Skip the assignment when nothing actually changed, since this
+// runs on every word-by-word draft delta but confirmed text rarely changes.
+function setTextIfChanged(el, text) {
+  if (el.textContent !== text) el.textContent = text;
+}
+
 function setDraft(draftEl, text, hasConfirmed = false) {
   draftEl.classList.add('fading');
   setTimeout(() => {
@@ -544,12 +552,12 @@ function onMessage(msg) {
     showPanels();
 
     const hasEn = !!msg.confirmed_en;
-    enConfirmed.textContent = msg.confirmed_en || '';
+    setTextIfChanged(enConfirmed, msg.confirmed_en || '');
     setDraft(enDraft, msg.current_en, hasEn);
     scrollAll();
 
     const hasTr = !!msg.confirmed_tr;
-    trConfirmed.textContent = msg.confirmed_tr || '';
+    setTextIfChanged(trConfirmed, msg.confirmed_tr || '');
     if (!msg.current_tr) {
       translatingBadge.classList.add('visible');
       setDraft(trDraft, '…', hasTr);
@@ -565,16 +573,16 @@ function onMessage(msg) {
 
   } else if (msg.type === 'commit') {
     // confirmed now contains everything that was the draft — just move it to white
-    enConfirmed.textContent = msg.confirmed_en ? msg.confirmed_en : '';
+    setTextIfChanged(enConfirmed, msg.confirmed_en ? msg.confirmed_en : '');
     enDraft.textContent = '';
-    trConfirmed.textContent = msg.confirmed_tr ? msg.confirmed_tr : '';
+    setTextIfChanged(trConfirmed, msg.confirmed_tr ? msg.confirmed_tr : '');
     trDraft.textContent = '';
     translatingBadge.classList.remove('visible');
     scrollAll();
 
   } else if (msg.type === 'translation_update') {
     // Translation of committed segment arrived (slightly after commit)
-    trConfirmed.textContent = msg.confirmed_tr ? msg.confirmed_tr : '';
+    setTextIfChanged(trConfirmed, msg.confirmed_tr ? msg.confirmed_tr : '');
     smartScroll(panels[1]);
 
   } else if (msg.type === 'error') {

@@ -7,7 +7,7 @@ Real-time speech transcription with optional live translation into 12 languages 
 
 ## Demo
 
-[![Watch the demo](https://img.youtube.com/vi/hyx5GZYJpWI/maxresdefault.jpg)](https://youtu.be/hyx5GZYJpWI)
+[![Watch the demo](https://img.youtube.com/vi/uAQYWYWIt_w/maxresdefault.jpg)](https://youtu.be/uAQYWYWIt_w)
 
 ## Quick start
 
@@ -189,7 +189,7 @@ A green panel with a concise expert answer (3–5 sentences). Three ways to trig
 
 - **Direct questions** — always answered, regardless of the 💡 toggle.
 - **Automatic** (💡 toggle) — fires on every committed paragraph that touches a substantive topic, not just questions.
-- **Manual, anytime** — select any transcribed text; a small **Ask** button appears next to it. Click it to get an answer immediately, even after you've hit Stop. Selections snap out to full words on release, so a sloppy drag that stops mid-word still grabs the whole word.
+- **Manual, anytime** — select any transcribed text; a small **Ask** button appears next to it. Click it to get an answer immediately, even after you've hit Stop. A single click selects the whole word under the cursor; dragging across several words snaps out to full words on release, so precise stopping isn't needed.
 
 ### Topic hints (💬 marker)
 
