@@ -5,6 +5,10 @@ Real-time speech transcription with optional live translation into 12 languages 
 - **Browser** — full transcript view with two scrollable panels (English + translation)
 - **Electron overlay** — transparent always-on-top subtitle window for use during video calls; video shows through the top, subtitles float at the bottom
 
+## Demo
+
+[![Watch the demo](https://img.youtube.com/vi/hyx5GZYJpWI/maxresdefault.jpg)](https://youtu.be/hyx5GZYJpWI)
+
 ## Quick start
 
 ```bash
