@@ -318,15 +318,11 @@ async def ws_endpoint(ws: WebSocket):
     pending_commit_task: Optional[asyncio.Task] = None  # debounce timer for short pending segments
 
     def _join_paras(paras: list[str]) -> str:
-        """Join paragraphs: \n\n if previous ends with sentence punctuation, else space."""
-        if not paras:
-            return ""
-        result = paras[0]
-        for i in range(1, len(paras)):
-            prev_tail = paras[i - 1].rstrip()
-            sep = "\n\n" if prev_tail and prev_tail[-1] in ".?!" else " "
-            result += sep + paras[i]
-        return result
+        """Join paragraphs with \n\n. Must stay a fixed separator (not content-dependent)
+        so confirmed_paras_en and confirmed_paras_tr always split back into the same
+        number of paragraphs on the frontend — otherwise the EN/translation rows drift
+        out of index alignment."""
+        return "\n\n".join(paras)
 
     def full_confirmed_en() -> str:
         return _join_paras(confirmed_paras_en)
@@ -352,9 +348,16 @@ async def ws_endpoint(ws: WebSocket):
 
         _cancel_pending_timer()
 
+        tr_idx: Optional[int] = None
         async with text_lock:
             if segment_en:
                 confirmed_paras_en.append(capitalize_first(clean_text(segment_en)))
+                if target_lang:
+                    # Reserve the paragraph's slot now (not on append-when-ready) so
+                    # confirmed_paras_en/tr stay index-aligned even if translations
+                    # resolve out of order or a later one fails outright.
+                    confirmed_paras_tr.append("…")
+                    tr_idx = len(confirmed_paras_tr) - 1
             current_en = ""
             current_tr = ""
             pending_en = ""
@@ -371,13 +374,14 @@ async def ws_endpoint(ws: WebSocket):
             "confirmed_tr": snap_tr,
         })
 
-        async def translate_committed(seg=segment_en):
-            if not seg:
+        async def translate_committed(seg=segment_en, idx=tr_idx):
+            if not seg or idx is None:
                 return
             tr = await translate_text(llm_client, llm_model, seg, target_lang)
             if tr:
                 async with text_lock:
-                    confirmed_paras_tr.append(tr.strip())
+                    if idx < len(confirmed_paras_tr):
+                        confirmed_paras_tr[idx] = tr.strip()
                 await safe_send({
                     "type": "translation_update",
                     "confirmed_tr": full_confirmed_tr(),
